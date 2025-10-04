@@ -6,6 +6,9 @@ import {
   Settings,
   TrendingUp,
   PieChart,
+  Shield,
+  AlertTriangle,
+  Search,
 } from "lucide-react";
 import {
   Sidebar,
@@ -21,10 +24,10 @@ import {
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Entities", url: "/entities", icon: Search },
+  { title: "Security", url: "/security", icon: Shield },
+  { title: "Alerts", url: "/alerts", icon: AlertTriangle },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
-  { title: "Reports", url: "/reports", icon: FileText },
-  { title: "Customers", url: "/customers", icon: Users },
-  { title: "Statistics", url: "/statistics", icon: PieChart },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
@@ -37,8 +40,8 @@ export function AppSidebar() {
             <TrendingUp className="h-6 w-6 text-primary-foreground" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-sidebar-foreground">Analytics Pro</h2>
-            <p className="text-xs text-sidebar-foreground/60">Business Dashboard</p>
+            <h2 className="text-lg font-bold text-sidebar-foreground">Campus Security</h2>
+            <p className="text-xs text-sidebar-foreground/60">Entity Resolution System</p>
           </div>
         </div>
       </SidebarHeader>
