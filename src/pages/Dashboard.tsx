@@ -1,48 +1,95 @@
+import { useState, useEffect } from 'react';
 import { Shield, AlertTriangle, Users, Activity, Search, Clock, TrendingUp } from "lucide-react";
 import { MetricCard } from "@/components/MetricCard";
 import { CampusActivityChart } from "@/components/CampusActivityChart";
 import { EntityResolutionChart } from "@/components/EntityResolutionChart";
 import { LocationActivityChart } from "@/components/LocationActivityChart";
 import { RecentAlertsTable } from "@/components/RecentAlertsTable";
-import { campusEntities, securityAlerts, activityRecords, getEntityStats } from "@/lib/campus-data";
+import { SeedDataButton } from "@/components/SeedDataButton";
+import { profileQueries, cardSwipeQueries } from "@/lib/supabase-queries";
+import type { Database } from '@/types/database.types';
+
+type Profile = Database['public']['Tables']['profiles']['Row'];
+type CardSwipe = Database['public']['Tables']['campus_card_swipes']['Row'];
+
+interface EntityStats {
+  students: number;
+  staff: number;
+  total: number;
+  resolutionRate: number;
+}
 
 export default function Dashboard() {
-  const entityStats = getEntityStats();
-  const activeAlerts = securityAlerts.filter(alert => alert.status === 'active');
-  const recentActivities = activityRecords.slice(0, 10);
-  const predictedActivities = activityRecords.filter(a => a.isPredicted).length;
+  const [loading, setLoading] = useState(true);
+  const [entityStats, setEntityStats] = useState<EntityStats>({ students: 0, staff: 0, total: 0, resolutionRate: 0 });
+  const [activeAlerts, setActiveAlerts] = useState<any[]>([]);
+  const [cardSwipes, setCardSwipes] = useState<CardSwipe[]>([]);
 
-  // Generate activity trend data for the last 24 hours
+  useEffect(() => {
+    async function fetchDashboardData() {
+      try {
+        // Fetch profiles for entity stats
+        const profiles: Profile[] = await profileQueries.getAll();
+        
+        // Fetch recent card swipes (last 24 hours)
+        const recentSwipes: CardSwipe[] = await cardSwipeQueries.getRecent(24);
+        
+        setEntityStats({
+          students: profiles.filter(p => p.role === 'student').length || 0,
+          staff: profiles.filter(p => p.role === 'staff').length || 0,
+          total: profiles.length || 0,
+          resolutionRate: profiles.length ? Math.round((profiles.filter((p) => p.face_id || p.device_hash).length / profiles.length) * 100) : 0,
+        });
+        
+        setCardSwipes(recentSwipes);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+        setLoading(false);
+      }
+    }
+
+    fetchDashboardData();
+  }, []);
+  // Derive recent activities and trend data from cardSwipes
+  const recentActivities = cardSwipes.filter((s) => s.timestamp && new Date(s.timestamp) > new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const predictedActivities = 0; // placeholder — replace with your ML prediction count when available
+
   const activityTrendData = Array.from({ length: 24 }, (_, i) => {
-    const hour = new Date(Date.now() - (23 - i) * 60 * 60 * 1000);
-    const activities = activityRecords.filter(a => {
-      const activityHour = new Date(a.timestamp).getHours();
-      return activityHour === hour.getHours();
+    const hourDate = new Date();
+    hourDate.setMinutes(0, 0, 0);
+    hourDate.setHours(hourDate.getHours() - (23 - i));
+
+    const activitiesThisHour = cardSwipes.filter((s) => {
+      if (!s.timestamp) return false;
+      const ts = new Date(s.timestamp);
+      return ts.getFullYear() === hourDate.getFullYear() && ts.getMonth() === hourDate.getMonth() && ts.getDate() === hourDate.getDate() && ts.getHours() === hourDate.getHours();
     });
-    
+
     return {
-      time: `${hour.getHours()}:00`,
-      activities: activities.length,
-      predicted: activities.filter(a => a.isPredicted).length,
-      regular: activities.filter(a => !a.isPredicted).length,
+      time: `${hourDate.getHours()}:00`,
+      activities: activitiesThisHour.length,
+      predicted: 0,
+      regular: activitiesThisHour.length,
     };
   });
 
-  // Generate entity resolution data
+  // Generate entity resolution data from entityStats
   const entityResolutionData = [
-    { type: 'Students', count: campusEntities.filter(e => e.type === 'student' && e.status === 'active').length, color: '#22c55e' },
-    { type: 'Staff', count: campusEntities.filter(e => e.type === 'staff' && e.status === 'active').length, color: '#3b82f6' },
-    { type: 'Assets', count: campusEntities.filter(e => e.type === 'asset' && e.status === 'active').length, color: '#8b5cf6' },
-    { type: 'Missing', count: campusEntities.filter(e => e.status === 'missing').length, color: '#ef4444' },
-    { type: 'Anomalous', count: campusEntities.filter(e => e.status === 'anomalous').length, color: '#f59e0b' },
+    { type: 'Students', count: entityStats.students || 0, color: '#22c55e' },
+    { type: 'Staff', count: entityStats.staff || 0, color: '#3b82f6' },
+    { type: 'Assets', count: 0, color: '#8b5cf6' },
+    { type: 'Missing', count: 0, color: '#ef4444' },
+    { type: 'Anomalous', count: 0, color: '#f59e0b' },
   ];
 
-  // Generate location activity data
+  // Generate location activity data from cardSwipes
   const locationCounts: { [key: string]: number } = {};
-  activityRecords.forEach(activity => {
-    locationCounts[activity.location] = (locationCounts[activity.location] || 0) + 1;
+  cardSwipes.forEach((swipe) => {
+    const loc = swipe.location_id || 'unknown';
+    locationCounts[loc] = (locationCounts[loc] || 0) + 1;
   });
-  
+
   const locationActivityData = Object.entries(locationCounts)
     .map(([location, count]) => ({ location, count }))
     .sort((a, b) => b.count - a.count)
@@ -55,6 +102,13 @@ export default function Dashboard() {
         <p className="text-muted-foreground">Real-time monitoring and entity resolution overview</p>
       </div>
 
+      {/* Show seed button if no data */}
+      {!loading && entityStats.total === 0 && (
+        <div className="mb-6">
+          <SeedDataButton />
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Total Entities"
@@ -66,7 +120,7 @@ export default function Dashboard() {
         <MetricCard
           title="Active Alerts"
           value={activeAlerts.length.toString()}
-          change={`${Math.round((activeAlerts.length / securityAlerts.length) * 100)}% of total`}
+          change={activeAlerts.length && activeAlerts.length > 0 ? `${activeAlerts.length} active` : 'No active alerts'}
           changeType={activeAlerts.length > 5 ? "negative" : "positive"}
           icon={AlertTriangle}
         />
@@ -125,7 +179,7 @@ export default function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <LocationActivityChart data={locationActivityData} />
-        <RecentAlertsTable alerts={securityAlerts} />
+  <RecentAlertsTable alerts={[]} />
       </div>
     </div>
   );

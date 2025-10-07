@@ -34,6 +34,7 @@ const menuItems = [
   { title: "Alerts", url: "/alerts", icon: AlertTriangle },
   { title: "Analytics", url: "/analytics", icon: TrendingUp },
   { title: "Settings", url: "/settings", icon: Settings },
+  { title: "Data", url: "/data", icon: PieChart },
 ];
 
 export function AppSidebar() {

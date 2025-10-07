@@ -23,7 +23,6 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.getSession();
       if (!isMounted) return;
       if (error) {
-        // eslint-disable-next-line no-console
         console.error("Supabase getSession error:", error);
       }
       setSession(data.session ?? null);

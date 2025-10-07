@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Shield, AlertTriangle, Eye, MapPin, Clock, Users, Activity, TrendingUp, BarChart3 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,15 +7,41 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { campusEntities, activityRecords, securityAlerts, getEntityStats } from "@/lib/campus-data";
+import { supabase } from "@/integrations/supabase/client";
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 export default function Security() {
   const [selectedTimeRange, setSelectedTimeRange] = useState("24h");
   const [selectedLocation, setSelectedLocation] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [cardSwipes, setCardSwipes] = useState<any[]>([]);
 
-  const entityStats = getEntityStats();
-  const activeAlerts = securityAlerts.filter(alert => alert.status === 'active');
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [profilesRes, swipesRes] = await Promise.all([
+          supabase.from('profiles').select('*'),
+          supabase.from('campus_card_swipes')
+            .select('*')
+            .order('timestamp', { ascending: false })
+            .limit(100)
+        ]);
+
+        if (profilesRes.error) throw profilesRes.error;
+        if (swipesRes.error) throw swipesRes.error;
+
+        setProfiles(profilesRes.data || []);
+        setCardSwipes(swipesRes.data || []);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, []);
 
   // Generate security metrics data
   const securityMetrics = useMemo(() => {
@@ -25,74 +51,64 @@ export default function Security() {
       "7d": 7 * 24 * 60 * 60 * 1000,
       "30d": 30 * 24 * 60 * 60 * 1000,
     };
-    
+
     const range = timeRanges[selectedTimeRange as keyof typeof timeRanges];
     const cutoff = new Date(now.getTime() - range);
-    
-    const recentActivities = activityRecords.filter(activity => 
-      activity.timestamp >= cutoff
-    );
-    
-    const recentAlerts = securityAlerts.filter(alert => 
-      alert.timestamp >= cutoff
-    );
+
+    const recentActivities = cardSwipes.filter((s) => s.timestamp && new Date(s.timestamp) >= cutoff);
+
+    // Alerts/system data not yet wired — defaults
+    const recentAlerts: any[] = [];
+
+    const resolvedCount = profiles.filter((p) => p.face_id || p.device_hash).length;
+    const resolutionRate = profiles.length ? Math.round((resolvedCount / profiles.length) * 100) : 0;
 
     return {
       totalActivities: recentActivities.length,
-      predictedActivities: recentActivities.filter(a => a.isPredicted).length,
+      predictedActivities: 0,
       securityIncidents: recentAlerts.length,
-      resolutionRate: entityStats.resolutionRate,
-      averageConfidence: recentActivities.reduce((sum, a) => sum + a.confidence, 0) / recentActivities.length || 0,
+      resolutionRate,
+      averageConfidence: 0,
     };
-  }, [selectedTimeRange, entityStats.resolutionRate]);
+  }, [selectedTimeRange, profiles, cardSwipes]);
 
-  // Generate chart data
+  // Generate chart data from card swipes
   const activityTrendData = useMemo(() => {
-    const hours = selectedTimeRange === "24h" ? 24 : selectedTimeRange === "7d" ? 7 : 30;
-    const interval = selectedTimeRange === "24h" ? 1 : selectedTimeRange === "7d" ? 1 : 1;
-    const data = [];
-    
-    for (let i = hours - 1; i >= 0; i -= interval) {
-      const time = new Date(Date.now() - i * (selectedTimeRange === "24h" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
-      const activities = activityRecords.filter(a => {
-        const activityTime = new Date(a.timestamp);
-        return activityTime >= time && activityTime < new Date(time.getTime() + (selectedTimeRange === "24h" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
-      });
-      
-      data.push({
-        time: selectedTimeRange === "24h" ? `${time.getHours()}:00` : time.toLocaleDateString(),
-        activities: activities.length,
-        predicted: activities.filter(a => a.isPredicted).length,
-        regular: activities.filter(a => !a.isPredicted).length,
-      });
+    const now = new Date();
+    const hours = selectedTimeRange === '24h' ? 24 : selectedTimeRange === '7d' ? 7 * 24 : 30 * 24;
+    const buckets: { time: string; activities: number; predicted: number; regular: number }[] = [];
+
+    for (let i = hours - 1; i >= 0; i--) {
+      const bucketStart = new Date(now.getTime() - i * 60 * 60 * 1000);
+      const label = selectedTimeRange === '24h' ? `${bucketStart.getHours()}:00` : bucketStart.toLocaleDateString();
+      const count = cardSwipes.filter((s) => {
+        if (!s.timestamp) return false;
+        const t = new Date(s.timestamp);
+        return t >= bucketStart && t < new Date(bucketStart.getTime() + 60 * 60 * 1000);
+      }).length;
+
+      buckets.push({ time: label, activities: count, predicted: 0, regular: count });
     }
-    
-    return data;
-  }, [selectedTimeRange]);
+
+    return buckets;
+  }, [selectedTimeRange, cardSwipes]);
 
   const locationData = useMemo(() => {
     const locationCounts: { [key: string]: number } = {};
-    activityRecords.forEach(activity => {
-      locationCounts[activity.location] = (locationCounts[activity.location] || 0) + 1;
+    cardSwipes.forEach((s) => {
+      const loc = s.location_id || 'unknown';
+      locationCounts[loc] = (locationCounts[loc] || 0) + 1;
     });
-    
+
     return Object.entries(locationCounts)
       .map(([location, count]) => ({ location, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
-  }, []);
+  }, [cardSwipes]);
 
   const alertSeverityData = useMemo(() => {
-    const severityCounts = securityAlerts.reduce((acc, alert) => {
-      acc[alert.severity] = (acc[alert.severity] || 0) + 1;
-      return acc;
-    }, {} as { [key: string]: number });
-    
-    return Object.entries(severityCounts).map(([severity, count]) => ({
-      severity: severity.charAt(0).toUpperCase() + severity.slice(1),
-      count,
-      color: severity === 'critical' ? '#ef4444' : severity === 'high' ? '#f97316' : severity === 'medium' ? '#eab308' : '#22c55e'
-    }));
+    // No alerts source wired; return empty dataset for charts
+    return [] as { severity: string; count: number; color: string }[];
   }, []);
 
   const getSeverityColor = (severity: string) => {
@@ -298,7 +314,7 @@ export default function Security() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {activeAlerts.slice(0, 5).map((alert) => (
+              {((/* no alerts wired */ []) as any[]).slice(0, 5).map((alert) => (
                 <div key={alert.id} className="flex items-start gap-3 p-3 border rounded-lg">
                   <div className="flex-shrink-0">
                     <AlertTriangle className={`h-5 w-5 ${
@@ -362,16 +378,16 @@ export default function Security() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {campusEntities
-                        .filter(e => e.status === 'missing' || e.status === 'anomalous')
+                      {profiles
+                        .filter(() => false)
                         .slice(0, 5)
                         .map((entity) => (
-                        <div key={entity.id} className="flex items-center justify-between p-2 border rounded">
+                        <div key={entity.entity_id} className="flex items-center justify-between p-2 border rounded">
                           <div>
                             <div className="font-medium text-sm">{entity.name}</div>
-                            <div className="text-xs text-muted-foreground">{entity.type}</div>
+                            <div className="text-xs text-muted-foreground">{entity.role}</div>
                           </div>
-                          <Badge variant="destructive">{entity.status}</Badge>
+                          <Badge variant="destructive">N/A</Badge>
                         </div>
                       ))}
                     </div>
@@ -384,16 +400,14 @@ export default function Security() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {activityRecords
-                        .filter(a => a.confidence < 0.7)
+                      {cardSwipes
+                        .filter(() => false)
                         .slice(0, 5)
                         .map((activity) => (
-                        <div key={activity.id} className="p-2 border rounded">
-                          <div className="text-sm font-medium">{activity.activityType}</div>
-                          <div className="text-xs text-muted-foreground">{activity.location}</div>
-                          <div className="text-xs text-red-600">
-                            Low confidence: {(activity.confidence * 100).toFixed(0)}%
-                          </div>
+                        <div key={activity.swipe_id} className="p-2 border rounded">
+                          <div className="text-sm font-medium">Swipe {activity.swipe_id}</div>
+                          <div className="text-xs text-muted-foreground">{activity.location_id}</div>
+                          <div className="text-xs text-red-600">Low confidence: N/A</div>
                         </div>
                       ))}
                     </div>

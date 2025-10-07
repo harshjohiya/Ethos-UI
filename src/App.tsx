@@ -11,7 +11,9 @@ import Security from "./pages/Security";
 import Alerts from "./pages/Alerts";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
+import Data from "./pages/Data";
 import Auth from "./pages/Auth";
+import TestPage from "./pages/TestPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -49,11 +51,17 @@ const App = () => (
               <DashboardLayout><Analytics /></DashboardLayout>
             </ProtectedRoute>
           } />
+          <Route path="/data" element={
+            <ProtectedRoute>
+              <DashboardLayout><Data /></DashboardLayout>
+            </ProtectedRoute>
+          } />
           <Route path="/settings" element={
             <ProtectedRoute>
               <DashboardLayout><Settings /></DashboardLayout>
             </ProtectedRoute>
           } />
+          <Route path="/test" element={<TestPage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+CURRENT_STATUS.md 
+FINAL_STATUS.md 
+GET_CORRECT_KEY.md 
+INTEGRATION_GUIDE.md 
+TROUBLESHOOTING_STEPS.md 
+ENTITIES_FIX.md 

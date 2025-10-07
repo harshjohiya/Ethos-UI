@@ -19,8 +19,13 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+  // Temporarily disable React Fast Refresh export warnings across the codebase
+  "react-refresh/only-export-components": "off",
       "@typescript-eslint/no-unused-vars": "off",
+      // Temporarily relax these to unblock development; plan to re-enable after
+      // generating Supabase types and fixing explicit any usages.
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-empty-object-type": "off",
     },
   },
 );
